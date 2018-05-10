@@ -4,7 +4,8 @@ library(dplyr)
 library(mgcv)
 
 
-pp1 <- read.csv('data/pawPaw1-Pollen.csv', stringsAsFactors = F)
+pp1 <- read.csv('https://raw.github.com/fneiman/MonticelloGeoArchy/master/data/pawPawUnit1Pollen.csv', 
+                stringsAsFactors = F)
 
 
 # check to see what it looks like
@@ -21,17 +22,27 @@ taxonCounts <- taxonCounts[,!is.na(colSums(taxonCounts))]
 # get rid of taxa with all 0s 
 taxonCounts <- taxonCounts[, colSums(taxonCounts) > 0] 
 
-# histgram of number of occurrences
+# histogram of number of occurrences
 hist(colSums(taxonCounts > 0), breaks=1:50, col='grey') 
 
 # get rid of taxa with fewer than 5 occurrences
 taxonCounts <- taxonCounts[,colSums(taxonCounts > 0) > 5]
 
 
-# create appropriately sized graphics window
-#windows(width=16, height=10)
+# write a function to subset pollen taxa based on minimum percent frequency 
+# and a minimum number of samples in which that frequnecy is attained
+moreThan2px3 <- function(taxonCounts, minPercent, minNumSamples ){
+  taxonPcts <- prop.table(as.matrix(taxonCounts), 1)*100
+  gt2p <- colSums(taxonPcts >=2) >=3
+  return(taxonCounts[,gt2p])
+}
 
-taxonPcts <- prop.table(as.matrix(taxonCounts), 1)*100
+
+taxonCounts1 <- moreThan2px3(taxonCounts, 2, 1)
+
+
+
+taxonPcts <- prop.table(as.matrix(taxonCounts1), 1)*100
 rowSums(taxonPcts)
 
 elevation <- pp1$Elevation
@@ -48,7 +59,7 @@ colnames(taxonPcts)
 
 title= 'Paw Paw: Unit 1'
 xx <- 1:ncol(taxonPcts)
-tColors <- ifelse(xx < 21, "darkgreen", "darkred")
+tColors <- ifelse(xx < 7, "darkgreen", "darkred")
 x <- strat.plot(taxonPcts, 
         
            yvar = depth, 
@@ -70,14 +81,17 @@ x <- strat.plot(taxonPcts,
            col.exag="auto",
            clust=clust)
 
-addClustZone(x, clust, 4, col="black")
+addClustZone(x, clust, 5, col="black")
 
 
-OakHickoryChestnut <- pp1$Quercus + pp1$Carya + pp1$Castanea 
+# pull out individual taxa a fit quasi binomial GAMs
+
+# asteraceae
+Oak.Hickory.Chestnut <- pp1$Quercus + pp1$Carya + pp1$Castanea 
 
 Asters <- pp1$Asteraceae.LS +  pp1$Asteraceae.HS 
-asterIndex <- data.frame(Asters, OakHickoryChestnut, Depth = -depth)
-asterModel <- gam( cbind(Asters,OakHickoryChestnut)~ s(Depth),
+asterIndex <- data.frame(Asters, Oak.Hickory.Chestnut, Depth = -depth)
+asterModel <- gam( cbind(Asters,Oak.Hickory.Chestnut)~ s(Depth),
                   link = logit,
                   family = quasibinomial,
                   data= asterIndex)
@@ -92,7 +106,7 @@ upperCL <- invLogit(pred$fit + 2*pred$se.fit)
 lowerCL <- invLogit(pred$fit - 2*pred$se.fit)
 
 par(mar=c(6,6,2,2))
-with(asterIndex, plot(Depth, Asters/(Asters + OakHickoryChestnut),
+with(asterIndex, plot(Depth, Asters/(Asters + Oak.Hickory.Chestnut),
                       pch=21, bg='green', cex=2,
                       cex.lab= 2,
                       cex.axis=1.5,
@@ -106,12 +120,13 @@ abline( v=c(-.5, -2.5, -3.1), lty=1, lwd=2
         , col='grey')
 
 
+# Pine
 
 Pine <-  pp1$Pinus
-pineIndex <- data.frame(Pine, OakHickoryChestnut, Depth = -depth)
-pineModel <- gam( cbind(Pine,OakHickoryChestnut)~ s(Depth),
+pineIndex <- data.frame(Pine, Oak.Hickory.Chestnut, Depth = -depth)
+pineModel <- gam( cbind(Pine,Oak.Hickory.Chestnut)~ s(Depth),
                    link = logit,
-                   family = quasibinomial,
+                   family = binomial,
                    method='REML',
                    #correlation = corAR1(form =  ~ Depth),
                    data= pineIndex)
@@ -129,7 +144,7 @@ upperCL <- invLogit(pred$fit + 2*pred$se.fit)
 lowerCL <- invLogit(pred$fit - 2*pred$se.fit)
 
 par(mar=c(6,6,2,2))
-with(pineIndex, plot(Depth, Pine/(Pine + OakHickoryChestnut),
+with(pineIndex, plot(Depth, Pine/(Pine + Oak.Hickory.Chestnut),
                       pch=21, bg='green', cex=2,
                       cex.lab= 2,
                       cex.axis=1.5,
@@ -142,9 +157,43 @@ lines(pineIndex$Depth, lowerCL, lwd=1, col= 'darkgreen', lty=2)
 abline( v=c(-.5, -2.5, -3.1), lty=1, lwd=2, col='grey')
 
 
+# Hickory Chestnut
+Hickory.Chestnut <-pp1$Carya + pp1$Castanea 
+
+HCIndex <- data.frame(Hickory.Chestnut, Oak.Hickory.Chestnut, Depth = -depth)
+HCModel <- gam( cbind(Hickory.Chestnut, Oak.Hickory.Chestnut)~ s(Depth),
+                   link = logit,
+                   family = quasibinomial,
+                   data= HCIndex)
+summary(HCModel)
+anova(HCModel)
+plot(HCModel)
+acf(residuals(HCModel),ci.type = "ma")
+
+invLogit <- function(x){ exp(x)/(1+exp(x)) }
+pred <- predict(HCModel, type='link', se.fit=T) 
+pHat <- invLogit(pred$fit)
+upperCL <- invLogit(pred$fit + 2*pred$se.fit)
+lowerCL <- invLogit(pred$fit - 2*pred$se.fit)
+
+par(mar=c(6,6,2,2))
+with(HCIndex, plot(Depth, Hickory.Chestnut/(Hickory.Chestnut + Oak.Hickory.Chestnut),
+                      pch=21, bg='green', cex=2,
+                      cex.lab= 2,
+                      cex.axis=1.5,
+                      xlim= c(-5,0)
+))
+
+lines(HCIndex$Depth, pHat, lwd=3, col= 'darkgreen')
+lines(HCIndex$Depth, upperCL, lwd=1, col= 'darkgreen', lty=2)
+lines(HCIndex$Depth, lowerCL, lwd=1, col= 'darkgreen', lty=2)
+abline( v=c(-.5, -2.5, -3.1), lty=1, lwd=2
+        , col='grey')
 
 
-#####################################################
+
+# ChenoAms
+
 
 ChenoAm <-  pp1$ChenoAm
 chenoAmIndex <- data.frame(ChenoAm, Asters, Depth = -depth)
@@ -181,14 +230,13 @@ abline( v=c(-.5, -2.5, -3.1), lty=1, lwd=2, col='grey')
 
 par(mfrow=c(1,1))
 
+# trifolum
 ######################################################
 Trifolium <-  pp1$Trifolium + pp1$Trifolium.repens
 trifoliumIndex <- data.frame(Trifolium, Asters, Depth = -depth)
 trifoliumModel <- gam( cbind(Trifolium,Asters) ~ s(Depth),
-                     link = logit,
-                     family = binomial,
+                     family = quasibinomial (link=logit),
                      method= 'REML',
-                     #correlation = corAR1(form = Depth),
                      data= trifoliumIndex)
 
 summary(trifoliumModel)

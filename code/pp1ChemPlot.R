@@ -3,9 +3,12 @@ library(rioja)
 library(dplyr)
 library(viridisLite)
 library(maptools)
+library(mgcv)
 
 
-pp1Chem <- read.csv('data/pawPaw1-Wisc-Chem.csv', stringsAsFactors = F)
+pp1Chem <- read.csv(
+  'https://raw.github.com/fneiman/MonticelloGeoArchy/master/data/pawPawUnit1-Wisc-Chem.csv', 
+  sep=",",header=TRUE,stringsAsFactors = F)
 
 
 # check to see what it looks like
@@ -14,24 +17,24 @@ str(pp1Chem)
 cbind(1:ncol(pp1Chem), colnames(pp1Chem))
 
 
+# sort the data frame on depth -- this is needed for rioja to behave properly
 pp1Chem <- arrange(pp1Chem, Depth)
-
+#do the log trasnformation and p;olace the results in a seprate dataframe
 lnPP1Chem <- log(pp1Chem[,10:22])
                  
-                 
+# pul out elevation and dpth for easier plotting                 
 elevation <- pp1Chem$Elevation
 depth <- pp1Chem$Depth 
 
 
-# add a dendrogram from constrained cluster analysis
+# do a constrained cluster analysis (CONISS) on the log transformed data
 diss <- dist(lnPP1Chem, method="euclidean" )
 clust <- chclust(diss, method="coniss")
 # broken stick model suggest 3 significant zones
 bstick(clust)
 
-title= 'Paw Paw: Unit1'
 
-
+# here we do the plot of the chem data and the add the dedrogram, to the side
 x <- strat.plot(lnPP1Chem, 
            yvar = depth, 
            y.rev= T, 
@@ -48,13 +51,8 @@ x <- strat.plot(lnPP1Chem,
            col.poly.line=NA,
            xSpace=0.01, x.pc.lab=TRUE, x.pc.omit0=TRUE, las=2,
            clust=clust)
-
-#lineCol <- adjustcolor(col="", alpha=.75)
-
-#op<-par
-par(fg="black")
-
-addClustZone(x, clust,2, col="grey",
+# this line adds lines to define the N zones in the cluster analysis 
+addClustZone(x, clust,5, col="grey",
              lwd=2, lty=2)
 
  
@@ -81,7 +79,7 @@ broken.stick <- function(p)
   return(result)
 }
 
-
+# do the PCA
 pc1<-prcomp(~ Al+ Ba + Ca+ Fe + Mg +K + Mn + Na + P + Sr + Ti + Zn, 
             data=lnPP1Chem, retx = TRUE, center = TRUE, scale. = T)
 # if scale.=TRUE is used, the PCs are extracted from the correlation matrix,
@@ -92,7 +90,6 @@ summary(pc1)
 
 # first we check out the eigenvalues in a scree plot
 ProportionVariance<- pc1$sd^2/(sum(pc1$sd^2))
-
 par(mfrow=c(1,1))
 bs<-broken.stick(length(pc1$sd))
 barplot(ProportionVariance, names.arg=1:length(pc1$sd),
@@ -103,7 +100,7 @@ lines(bs[,1],bs[,2], col=viridis(1), lwd=5, lty=1)
 
 
 # plot the scores of the obs -- note we scale these to unit variance
-# so scatterplot distances approximate Mahalaobis D
+# so scatterplot distances approximate Mahalaobis distances
 scores<-(predict(pc1))
 pcaZScores <- apply(scores, 2, scale)
 
@@ -140,8 +137,9 @@ pointLabel(1.05* pc1$rotation[,1] , 1.05* pc1$rotation[,2] , names(pc1$rotation[
            col="black", cex=1.5)
 
 
-
-
+# now we do a second startogahpic plot, and include the PCA scores
+# the xrIght = .7 argument force the plot into the left most 70% of the 
+# plot window.., leving 30% for the PC sceores
 
 par(mfrow=c(1,1))
 
@@ -164,6 +162,7 @@ p1 <- strat.plot(lnPP1Chem, xRight =.7,
 #lineCol <- adjustcolor(col="", alpha=.75)
 
 
+# add the PCA scores
 
 p2 <- strat.plot(pcaZScores[,1:2], xLeft = 0.7, yvar = depth, y.rev=TRUE, 
            xRight=0.99,
@@ -173,7 +172,7 @@ p2 <- strat.plot(pcaZScores[,1:2], xLeft = 0.7, yvar = depth, y.rev=TRUE,
            cex.xlabel= 1.5,
            plot.line=FALSE, 
            plot.poly=FALSE, 
-           plot.bar=TRUE, 
+           plot.bar=TRUE,   # we use bars, not polygons
            col.bar= viridis(6)[pp1Chem$Layer],
            lwd.bar=9,
            sep.bar=TRUE,
@@ -182,15 +181,37 @@ p2 <- strat.plot(pcaZScores[,1:2], xLeft = 0.7, yvar = depth, y.rev=TRUE,
 
 
 
-
-addClustZone(p1, clust,2, col="grey",
+addClustZone(p1, clust,5, col="grey",
              lwd=2, lty=1)
-addClustZone(p2, clust,2, col="grey",
+addClustZone(p2, clust,5, col="grey",
              lwd=2, lty=1)
 
 
+# pull out the pollen and fit a generalized additive model (GAM)
 
+SIndex <- data.frame(S=lnPP1Chem$S, Depth = -depth)
+SModel <- gam( S~ s(Depth),
+               family = gaussian,
+               data= SIndex)
+summary(SModel)
+anova(SModel)
+acf(residuals(SModel),ci.type = "ma")
 
+pred <- predict(SModel, type='link', se.fit=T) 
+upperCL <- pred$fit + 2*pred$se.fit
+lowerCL <- pred$fit - 2*pred$se.fit
 
+par(mar=c(6,6,2,2), mfrow=c(1,1))
+with(SIndex, plot(Depth, S,
+                  pch=21, bg=viridis(6)[3], cex=2,
+                  cex.lab= 2,
+                  cex.axis=1.5,
+                  xlim= c(-6,0)
+))
+
+lines(SIndex$Depth, pred$fit, lwd=3, col= viridis(1))
+lines(SIndex$Depth, upperCL, lwd=1, col= viridis(1), lty=2)
+lines(SIndex$Depth, lowerCL, lwd=1, col= viridis(1), lty=2)
+abline( h=pred$fit[1] , lty=1, lwd=2, col='grey')
 
 
