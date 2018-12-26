@@ -7,7 +7,7 @@ library(ggrepel)
 library(viridis)
 library(ca)
 
-pp1 <- read.csv('https://raw.github.com/fneiman/MonticelloGeoArchy/master/data/pawPawUnit1Pollen.csv', 
+pp1 <- read.csv('https://raw.github.com/fneiman/MonticelloGeoArchy/master/data/montSouthPavilion2018.csv', 
                 stringsAsFactors = F)
 
 # read the first three rows and transpose them into a data frame
